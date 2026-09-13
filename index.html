@@ -378,7 +378,7 @@ function pintarMov(){
     <label>Categoría</label>
     <div class="chips" id="fCats">
       ${(db.cats[b.tipo]||[]).map(c=>`<button type="button" class="chip ${b.cat===c.n?'on':''}"
-         onclick="setCat('${esc(c.n).replace(/'/g,"\\'")}')"><span>${c.e}</span>${esc(c.n)}</button>`).join('')}
+         onclick="setCat('${esc(c.n).replace(/'/g,"\\'")}')"><span>${c.e}</span><span>${esc(c.n)}</span></button>`).join('')}
     </div>
     <label>Detalle <span style="text-transform:none;font-weight:500">(opcional)</span></label>
     <input id="fDet" type="text" placeholder="Ej: almuerzo con el Tomás" value="${esc(b.detalle)}">
@@ -800,13 +800,87 @@ function borrarTodo(){
   db=JSON.parse(JSON.stringify(VACIO)); guardar(); render(); aviso('Todo borrado');
 }
 
+
+/* ============ leer el correo del Banco de Chile ============
+   El atajo manda el texto crudo del correo; acá lo interpretamos.     */
+const MESES_N={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,
+               agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+const pad2=n=>String(n).padStart(2,'0');
+const fISO=(y,m,d)=>y+'-'+pad2(+m)+'-'+pad2(+d);
+
+function mkMov(tipo,montoTxt,detalle,fecha,dudoso){
+  const monto=parseInt(String(montoTxt).split(',')[0].replace(/\D/g,''),10)||0;
+  if(monto<=0) return null;
+  return {tipo,monto,detalle:String(detalle||'').trim().replace(/\s+/g,' ').slice(0,60),
+          fecha:fecha||hoyISO(),dudoso:!!dudoso};
+}
+
+function parsearCorreo(txt){
+  const b=String(txt||'').replace(/\s+/g,' ');
+  let m;
+
+  // "tu devolución por $6.120 desde PAYU *FLIXBUS, el 14/07/2026"
+  m=b.match(/devoluci\S+ por \$ ?([\d.,]+) desde (.+?)\s*,?\s*el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  if(m) return mkMov('ingreso',m[1],'Devolución '+m[2],fISO(m[5],m[4],m[3]));
+
+  // "compra por $950 con cargo a Cuenta ****0303 en UNIMARC 4 PONIENT el 18/07/2026"
+  m=b.match(/compra por \$ ?([\d.,]+) con cargo a .*? en (.+?) el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  if(m) return mkMov('gasto',m[1],m[2],fISO(m[5],m[4],m[3]));
+
+  // giro en cajero automático
+  m=b.match(/giro (?:por|de) \$ ?([\d.,]+)/i) || b.match(/cajero autom\S+tico.*?\$ ?([\d.,]+)/i);
+  if(m) return mkMov('gasto',m[1],'Giro en cajero',hoyISO());
+
+  // comprobante de transferencia a terceros
+  if(/transferencia a terceros/i.test(b)){
+    const mo=b.match(/Monto:? \$ ?([\d.,]+)/i);
+    if(mo){
+      const nom=b.match(/Nombre y Apellido:? (.+?) Rut/i);
+      const f=b.match(/(\d{1,2}) de ([a-záéíóúñ]+) de (\d{4})/i);
+      const fecha=(f&&MESES_N[f[2].toLowerCase()])?fISO(f[3],MESES_N[f[2].toLowerCase()],f[1]):hoyISO();
+      return mkMov('gasto',mo[1],'Transf. a '+(nom?nom[1]:'terceros'),fecha);
+    }
+  }
+
+  // te transfirieron
+  if(/has recibido una transferencia|te han transferido|abono por transferencia|transferencia recibida/i.test(b)){
+    const mt=b.match(/\$ ?([\d.,]+)/);
+    if(mt) return mkMov('ingreso',mt[1],'Transferencia recibida',hoyISO());
+  }
+
+  // último recurso: el primer monto que aparezca, marcado como dudoso
+  m=b.match(/\$ ?([\d][\d.]{2,})/);
+  if(m) return mkMov('gasto',m[1],'',hoyISO(),true);
+  return null;
+}
+
+// ¿ya anotamos algo casi idéntico? (mismo monto y misma fecha)
+function yaEstaba(mv){
+  return db.tx.some(t=>t.monto===mv.monto && t.fecha===mv.fecha && t.tipo===mv.tipo);
+}
+
+function desdeCorreo(texto){
+  const mv=parsearCorreo(texto);
+  if(!mv){
+    abrirMov();
+    setTimeout(()=>aviso('No pude leer ese correo — anótalo a mano'),400);
+    return;
+  }
+  const rep=yaEstaba(mv);
+  abrirMov({id:null,tipo:mv.tipo,monto:mv.monto,cat:'',detalle:mv.detalle,fecha:mv.fecha});
+  setTimeout(()=>aviso(rep?'⚠️ Ojo: ya tienes uno igual anotado'
+    :(mv.dudoso?'🤔 Revisa el monto, no estoy seguro':'📩 '+(mv.tipo==='ingreso'?'Ingreso':'Gasto')+' '+plata(mv.monto))),400);
+}
+
 /* ============ puente con el Atajo del iPhone ============
    El atajo abre:  ...index.html#nuevo=monto|detalle|fecha|categoría|tipo
    Varios movimientos se separan con ";;"                                  */
 function leerPuente(){
   const h=decodeURIComponent((location.hash||'').replace(/^#/,''));
-  if(!h.startsWith('nuevo=')) return;
+  if(!h.startsWith('nuevo=') && !h.startsWith('correo=')) return;
   history.replaceState(null,'',location.pathname+location.search);
+
+  if(h.startsWith('correo=')){ desdeCorreo(h.slice(7)); return; }
 
   let n=0, ultimo=null;
   for(const linea of h.slice(6).split(';;')){
