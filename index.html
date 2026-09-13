@@ -32,10 +32,11 @@ button{cursor:pointer;border:0;background:none}
 .tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 
 /* ---------- cabecera ---------- */
-header{padding:calc(env(safe-area-inset-top,0px) + 14px) 0 4px}
-.hrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.logo{font-size:19px;font-weight:800;letter-spacing:-.03em}
-.iconbtn{width:38px;height:38px;border-radius:12px;background:var(--card);box-shadow:var(--shadow);
+main.wrap{padding-top:14px}
+@media (display-mode:standalone){
+  main.wrap{padding-top:max(env(safe-area-inset-top,0px),52px)}
+}
+.iconbtn{width:38px;height:38px;border-radius:12px;background:var(--card2);
   display:grid;place-items:center;font-size:17px}
 
 /* ---------- tarjetas ---------- */
@@ -140,15 +141,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 </head>
 <body>
 
-<header class="wrap">
-  <div class="hrow">
-    <div class="logo">Platita 💸</div>
-    <div style="display:flex;gap:8px">
-      <button class="iconbtn" id="bTema" title="Tema">🌙</button>
-      <button class="iconbtn" onclick="ir('ajustes')" title="Ajustes">⚙️</button>
-    </div>
-  </div>
-</header>
+
 
 <main class="wrap">
 
@@ -214,6 +207,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   <!-- ============ AJUSTES ============ -->
   <section class="view" id="v-ajustes">
     <div class="hdr2"><h2>Ajustes</h2></div>
+
+    <div class="card">
+      <h3>Apariencia</h3>
+      <button class="btn ghost" id="bTema" style="margin-top:0"></button>
+    </div>
 
     <div class="card">
       <h3>Categorías</h3>
@@ -346,7 +344,8 @@ function aplicarTema(){
   const osc = t==='dark' || (t==='auto' && matchMedia('(prefers-color-scheme:dark)').matches);
   document.documentElement.dataset.t = osc?'dark':'light';
   document.querySelector('meta[name=theme-color]').content = osc?'#0b0f14':'#f4f5f7';
-  $('#bTema').textContent = osc?'☀️':'🌙';
+  $('#bTema').innerHTML = osc ? '<span style="margin-right:6px">☀️</span>Cambiar a modo claro'
+                              : '<span style="margin-right:6px">🌙</span>Cambiar a modo oscuro';
 }
 $('#bTema').onclick=()=>{
   db.cfg.tema = (document.documentElement.dataset.t==='dark')?'light':'dark';
