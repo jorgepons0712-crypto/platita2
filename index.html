@@ -15,7 +15,7 @@
   --line:#e4e8ee; --accent:#00a862; --accent-ink:#fff;
   --gasto:#e5484d; --ingreso:#00a862; --warn:#f5a524;
   --shadow:0 1px 2px rgba(16,21,28,.06),0 8px 24px rgba(16,21,28,.05);
-  --r:18px; --safe-b:env(safe-area-inset-bottom,0px);
+  --r:18px; --safe-b:max(env(safe-area-inset-bottom,0px),10px);
 }
 html[data-t="dark"]{
   --bg:#0b0f14; --card:#141a22; --card2:#1b232d; --ink:#eef2f7; --ink2:#8e9cad;
@@ -130,7 +130,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   background:var(--ink);color:var(--bg);padding:12px 20px;border-radius:99px;font-weight:600;font-size:14px;
   z-index:90;opacity:0;transition:.28s;pointer-events:none;white-space:nowrap;box-shadow:var(--shadow)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.view{display:none} .view.on{display:block;animation:fade .22s}
+.view{display:none}
+.view.on{display:block;animation:fade .22s;min-height:calc(100dvh - 60px)}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}}
 .mini{font-size:12.5px;color:var(--ink2);line-height:1.5}
 .linkish{color:var(--accent);font-weight:600}
