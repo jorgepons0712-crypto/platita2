@@ -815,43 +815,63 @@ function mkMov(tipo,montoTxt,detalle,fecha,dudoso){
           fecha:fecha||hoyISO(),dudoso:!!dudoso};
 }
 
+function fechaDelTexto(b){
+  let f=b.match(/(\d{1,2}) de ([a-záéíóúñ]+) de (\d{4})/i);
+  if(f&&MESES_N[f[2].toLowerCase()]) return fISO(f[3],MESES_N[f[2].toLowerCase()],f[1]);
+  f=b.match(/Fecha:? (\d{1,2})\/(\d{1,2})\/(\d{4})/i) || b.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(f) return fISO(f[3],f[2],f[1]);
+  return hoyISO();
+}
+
+/* Los 5 tipos de correo que manda el Banco de Chile, cada uno con su forma de
+   decir las cosas. El orden importa: los más específicos van primero. */
 function parsearCorreo(txt){
   const b=String(txt||'').replace(/\s+/g,' ');
   let m;
 
-  // "tu devolución por $6.120 desde PAYU *FLIXBUS, el 14/07/2026"
-  m=b.match(/devoluci\S+ por \$ ?([\d.,]+) desde (.+?)\s*,?\s*el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
-  if(m) return mkMov('ingreso',m[1],'Devolución '+m[2],fISO(m[5],m[4],m[3]));
-
-  // "compra por $950 con cargo a Cuenta ****0303 en UNIMARC 4 PONIENT el 18/07/2026"
+  // asunto "Cargo en Cuenta": compra con tarjeta
   m=b.match(/compra por \$ ?([\d.,]+) con cargo a .*? en (.+?) el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
   if(m) return mkMov('gasto',m[1],m[2],fISO(m[5],m[4],m[3]));
 
-  // giro en cajero automático
-  m=b.match(/giro (?:por|de) \$ ?([\d.,]+)/i) || b.match(/cajero autom\S+tico.*?\$ ?([\d.,]+)/i);
-  if(m) return mkMov('gasto',m[1],'Giro en cajero',hoyISO());
+  // asunto "Giro con Tarjeta de Débito": plata sacada del cajero
+  m=b.match(/giro en cajero por \$ ?([\d.,]+).*? el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  if(m) return mkMov('gasto',m[1],'Giro en cajero',fISO(m[4],m[3],m[2]));
 
-  // comprobante de transferencia a terceros
+  // devolución de una compra
+  m=b.match(/devoluci\S+ por \$ ?([\d.,]+) desde (.+?)\s*,?\s*el (\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  if(m) return mkMov('ingreso',m[1],'Devolución '+m[2],fISO(m[5],m[4],m[3]));
+
+  // asunto "Aviso de transferencia de fondos": alguien TE transfirió
+  if(/ha efectuado una transferencia de fondos a tu cuenta/i.test(b)){
+    const mo=b.match(/Monto:? \$ ?([\d.,]+)/i);
+    if(mo){
+      const nom=b.match(/cliente\s+(.+?)\s+ha efectuado/i);
+      return mkMov('ingreso',mo[1],nom?('De '+nom[1]):'Transferencia recibida',fechaDelTexto(b));
+    }
+  }
+
+  // asunto "Transferencia a Terceros": TÚ le transferiste a una persona
   if(/transferencia a terceros/i.test(b)){
     const mo=b.match(/Monto:? \$ ?([\d.,]+)/i);
     if(mo){
       const nom=b.match(/Nombre y Apellido:? (.+?) Rut/i);
-      const f=b.match(/(\d{1,2}) de ([a-záéíóúñ]+) de (\d{4})/i);
-      const fecha=(f&&MESES_N[f[2].toLowerCase()])?fISO(f[3],MESES_N[f[2].toLowerCase()],f[1]):hoyISO();
-      return mkMov('gasto',mo[1],'Transf. a '+(nom?nom[1]:'terceros'),fecha);
+      return mkMov('gasto',mo[1],'Transf. a '+(nom?nom[1]:'terceros'),fechaDelTexto(b));
     }
   }
 
-  // te transfirieron
-  if(/has recibido una transferencia|te han transferido|abono por transferencia|transferencia recibida/i.test(b)){
-    const mt=b.match(/\$ ?([\d.,]+)/);
-    if(mt) return mkMov('ingreso',mt[1],'Transferencia recibida',hoyISO());
+  // asunto "Transferencias de Fondos a Medio de Pago": pago a una empresa
+  m=b.match(/usted ha efectuado una transferencia de fondos a (.+?),? el d[ií]a/i);
+  if(m){
+    const mo=b.match(/Monto:? \$ ?([\d.,]+)/i);
+    if(mo) return mkMov('gasto',mo[1],'Transf. a '+m[1],fechaDelTexto(b));
   }
 
-  // último recurso: el primer monto que aparezca, marcado como dudoso
-  m=b.match(/\$ ?([\d][\d.]{2,})/);
-  if(m) return mkMov('gasto',m[1],'',hoyISO(),true);
-  return null;
+  // formato que no conozco pero que sí habla de plata: rescatar el monto y avisar
+  if(/con cargo a|Monto:? \$|transferencia|compra por/i.test(b)){
+    m=b.match(/\$ ?([\d][\d.]{2,})/);
+    if(m) return mkMov('gasto',m[1],'',fechaDelTexto(b),true);
+  }
+  return null;   // publicidad y avisos del banco: no es un movimiento
 }
 
 // ¿ya anotamos algo casi idéntico? (mismo monto y misma fecha)
@@ -861,11 +881,7 @@ function yaEstaba(mv){
 
 function desdeCorreo(texto){
   const mv=parsearCorreo(texto);
-  if(!mv){
-    abrirMov();
-    setTimeout(()=>aviso('No pude leer ese correo — anótalo a mano'),400);
-    return;
-  }
+  if(!mv){ aviso('📭 Ese correo no es un movimiento'); return; }
   const rep=yaEstaba(mv);
   abrirMov({id:null,tipo:mv.tipo,monto:mv.monto,cat:'',detalle:mv.detalle,fecha:mv.fecha});
   setTimeout(()=>aviso(rep?'⚠️ Ojo: ya tienes uno igual anotado'
